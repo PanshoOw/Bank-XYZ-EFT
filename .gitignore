@@ -1,0 +1,47 @@
+# Maven
+target/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Variables de entorno
+.env
+.env.*
+
+# Oracle Wallet - nunca versionar
+**/Wallet_*/
+cwallet.sso
+ewallet.p12
+ewallet.pem
+keystore.jks
+truststore.jks
+tnsnames.ora
+sqlnet.ora
+ojdbc.properties
+
+# Certificados SSL locales - nunca versionar claves privadas
+**/keystore.p12
+
+# Salidas generadas por versiones anteriores del proyecto
+output/
+
+# Evidencias de la entrega
+evidencias/
+
+# Archivos temporales de autenticación
+auth-web.json
+auth-*.jsontoken-response.json
+actuator-response.txt
+retiro.json
+**/keystore*.p12
+**/Wallet*/
+!/.env.example
