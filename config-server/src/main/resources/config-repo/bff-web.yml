@@ -4,6 +4,7 @@ server:
 bankxyz:
   cuentas:
     url: http://cuentas-service
+    path: /api/cuentas
 
   clientes:
     url: http://clientes-service
