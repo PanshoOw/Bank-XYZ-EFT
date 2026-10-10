@@ -104,6 +104,139 @@ services:
       - bankxyz-network
 
 
+  cuentas-service:
+    build:
+      context: ./cuentas-service
+    image: bankxyz-cuentas-service:1.0
+
+    expose:
+      - "8084"
+
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_URL: http://discovery-server:8761/eureka/
+
+      AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
+
+      ORACLE_WALLET_DIR: /wallet
+      BANKXYZ_DB_PASSWORD: ${BANKXYZ_DB_PASSWORD}
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+    volumes:
+      - type: bind
+        source: ${ORACLE_WALLET_HOST_PATH}
+        target: /wallet
+        read_only: true
+
+    depends_on:
+      - config-server
+      - discovery-server
+      - auth-server
+      - kafka
+
+    restart: on-failure
+
+    networks:
+      - bankxyz-network
+
+
+  pagos-service:
+    build:
+      context: ./pagos-service
+    image: bankxyz-pagos-service:1.0
+
+    expose:
+      - "8085"
+
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_URL: http://discovery-server:8761/eureka/
+
+      AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
+
+      ORACLE_WALLET_DIR: /wallet
+      BANKXYZ_DB_PASSWORD: ${BANKXYZ_DB_PASSWORD}
+
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+    volumes:
+      - type: bind
+        source: ${ORACLE_WALLET_HOST_PATH}
+        target: /wallet
+        read_only: true
+
+    depends_on:
+      - config-server
+      - discovery-server
+      - auth-server
+      - kafka
+
+    restart: on-failure
+
+    networks:
+      - bankxyz-network
+
+
+  clientes-service:
+    build:
+      context: ./clientes-service
+    image: bankxyz-clientes-service:1.0
+
+    expose:
+      - "8086"
+
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_URL: http://discovery-server:8761/eureka/
+
+      AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
+
+      ORACLE_WALLET_DIR: /wallet
+      BANKXYZ_DB_PASSWORD: ${BANKXYZ_DB_PASSWORD}
+
+    volumes:
+      - type: bind
+        source: ${ORACLE_WALLET_HOST_PATH}
+        target: /wallet
+        read_only: true
+
+    depends_on:
+      - config-server
+      - discovery-server
+      - auth-server
+
+    restart: on-failure
+
+    networks:
+      - bankxyz-network
+
+  auditoria-service:
+    build:
+      context: ./auditoria-service
+    image: bankxyz-auditoria-service:1.0
+
+    expose:
+      - "8087"
+
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_URL: http://discovery-server:8761/eureka/
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+
+    depends_on:
+      - config-server
+      - discovery-server
+      - kafka
+
+    restart: on-failure
+
+    networks:
+      - bankxyz-network
+
   bff-web:
     build:
       context: ./bff-web
@@ -115,9 +248,10 @@ services:
 
     environment:
       CONFIG_SERVER_URL: http://config-server:8888
-      BACKEND_URL: http://backend:8080
       EUREKA_URL: http://discovery-server:8761/eureka/
+
       AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
 
       SERVER_SSL_KEY_STORE: file:/app/keystore.p12
       BFF_WEB_SSL_KEYSTORE_PASSWORD: ${BFF_WEB_SSL_KEYSTORE_PASSWORD}
@@ -132,7 +266,9 @@ services:
       - config-server
       - discovery-server
       - auth-server
-      - backend
+      - cuentas-service
+      - pagos-service
+      - clientes-service
 
     restart: on-failure
 
@@ -151,9 +287,10 @@ services:
 
     environment:
       CONFIG_SERVER_URL: http://config-server:8888
-      BACKEND_URL: http://backend:8080
       EUREKA_URL: http://discovery-server:8761/eureka/
+
       AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
 
       SERVER_SSL_KEY_STORE: file:/app/keystore.p12
       BFF_MOBILE_SSL_KEYSTORE_PASSWORD: ${BFF_MOBILE_SSL_KEYSTORE_PASSWORD}
@@ -168,7 +305,9 @@ services:
       - config-server
       - discovery-server
       - auth-server
-      - backend
+      - cuentas-service
+      - pagos-service
+      - clientes-service
 
     restart: on-failure
 
@@ -187,9 +326,10 @@ services:
 
     environment:
       CONFIG_SERVER_URL: http://config-server:8888
-      BACKEND_URL: http://backend:8080
       EUREKA_URL: http://discovery-server:8761/eureka/
+
       AUTH_SERVER_ISSUER_URI: http://auth-server:9000
+      AUTH_SERVER_JWK_SET_URI: http://auth-server:9000/oauth2/jwks
 
       SERVER_SSL_KEY_STORE: file:/app/keystore.p12
       BFF_ATM_SSL_KEYSTORE_PASSWORD: ${BFF_ATM_SSL_KEYSTORE_PASSWORD}
@@ -204,7 +344,7 @@ services:
       - config-server
       - discovery-server
       - auth-server
-      - backend
+      - cuentas-service
 
     restart: on-failure
 
