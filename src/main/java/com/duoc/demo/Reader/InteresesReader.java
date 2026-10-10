@@ -4,78 +4,144 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
-import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
+import org.springframework.batch.infrastructure.item.support.AbstractItemCountingItemStreamItemReader;
 import org.springframework.core.io.ClassPathResource;
 
 import com.duoc.demo.Model.LegacyIntereses;
 
-public class InteresesReader implements ItemReader<LegacyIntereses> {
+public class InteresesReader
+        extends AbstractItemCountingItemStreamItemReader<LegacyIntereses> {
 
-    private final List<LegacyIntereses> interesesList;
-    private int index;
-    private final int end;
+    private static final int CANTIDAD_COLUMNAS_ESPERADAS = 5;
 
-    public InteresesReader(String resourcePath, int start, int end) throws IOException {
-        List<LegacyIntereses> interesesList = cargarIntereses(resourcePath);
-        
-        this.interesesList = interesesList.subList(start, Math.min(end, interesesList.size()));
+    private final String resourcePath;
+    private final int start;
 
-        this.index = 0;
-        this.end = this.interesesList.size();
+    private BufferedReader reader;
+    private int numeroLineaFisica;
+
+    public InteresesReader(
+            String resourcePath,
+            int start,
+            int end) {
+
+        if (start < 0) {
+            throw new IllegalArgumentException(
+                    "El indice inicial no puede ser negativo");
+        }
+
+        if (end < start) {
+            throw new IllegalArgumentException(
+                    "El indice final no puede ser menor que el inicial");
+        }
+
+        this.resourcePath = resourcePath;
+        this.start = start;
+
+        setName("interesesReader");
+        setMaxItemCount(end - start);
     }
 
     @Override
-    public LegacyIntereses read() {
+    protected void doOpen() throws Exception {
 
-        if (index >= end) {
-            return null;
-        }
-        
-        return interesesList.get(index++);
-    }
-
-    private List<LegacyIntereses> cargarIntereses(String resourcePath)
-            throws IOException {
-
-        List<LegacyIntereses> interesesList = new ArrayList<>();
         ClassPathResource resource =
                 new ClassPathResource(resourcePath);
 
-        try (BufferedReader reader = new BufferedReader(
+        reader = new BufferedReader(
                 new InputStreamReader(
                         resource.getInputStream(),
-                        StandardCharsets.UTF_8))) {
+                        StandardCharsets.UTF_8));
 
-            String line;
-            int numeroLinea = 0;
+        String header = reader.readLine();
 
-            while ((line = reader.readLine()) != null) {
+        if (header == null) {
+            throw new IOException(
+                    "El archivo CSV esta vacio: " + resourcePath);
+        }
 
-                numeroLinea++;
+        numeroLineaFisica = 1;
 
-                // Primera línea = encabezado del CSV
-                if (numeroLinea == 1) {
-                    continue;
-                }
+        /*
+         * Posiciona el Reader al comienzo
+         * correspondiente a esta particion.
+         */
+        for (int i = 0; i < start; i++) {
 
-                String[] fields = line.split(",", -1);
+            String linea = reader.readLine();
 
-                LegacyIntereses interes =
-                        new LegacyIntereses(
-                                fields[0],
-                                fields[1],
-                                fields[2],
-                                fields[3],
-                                fields[4],
-                                numeroLinea);
-
-                interesesList.add(interes);
+            if (linea == null) {
+                break;
             }
 
-            return interesesList;
+            numeroLineaFisica++;
+        }
+    }
+
+    @Override
+    protected LegacyIntereses doRead() throws Exception {
+
+        String line = reader.readLine();
+
+        if (line == null) {
+            return null;
+        }
+
+        numeroLineaFisica++;
+
+        /*
+         * Conserva campos vacios, incluyendo
+         * los que aparecen al final de la fila.
+         */
+        String[] fields = line.split(",", -1);
+
+        if (fields.length != CANTIDAD_COLUMNAS_ESPERADAS) {
+
+            throw new FlatFileParseException(
+                    "Cantidad de columnas invalida. Se esperaban "
+                            + CANTIDAD_COLUMNAS_ESPERADAS
+                            + " pero se encontraron "
+                            + fields.length,
+                    line,
+                    numeroLineaFisica);
+        }
+
+        return new LegacyIntereses(
+                fields[0],
+                fields[1],
+                fields[2],
+                fields[3],
+                fields[4],
+                numeroLineaFisica);
+    }
+
+    @Override
+    protected void jumpToItem(int itemIndex) throws Exception {
+
+        /*
+         * En un restart, Spring Batch recupera
+         * cuantos registros de esta particion
+         * ya habian sido procesados.
+         */
+        for (int i = 0; i < itemIndex; i++) {
+
+            String line = reader.readLine();
+
+            if (line == null) {
+                return;
+            }
+
+            numeroLineaFisica++;
+        }
+    }
+
+    @Override
+    protected void doClose() throws Exception {
+
+        if (reader != null) {
+            reader.close();
         }
     }
 }

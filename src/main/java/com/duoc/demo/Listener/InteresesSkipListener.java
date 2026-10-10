@@ -10,9 +10,20 @@ import com.duoc.demo.Model.LegacyIntereses;
 import com.duoc.demo.Model.ModernIntereses;
 
 @Component
-public class InteresesSkipListener implements SkipListener<LegacyIntereses, ModernIntereses> {
+public class InteresesSkipListener
+        implements SkipListener<LegacyIntereses, ModernIntereses> {
 
-    private static final Logger log = LoggerFactory.getLogger(InteresesSkipListener.class);
+    private static final Logger log =
+            LoggerFactory.getLogger(InteresesSkipListener.class);
+
+    private static final String INSERT_ERROR_SQL = """
+            INSERT INTO ERRORES_BATCH (
+                tipo,
+                registro,
+                detalle
+            )
+            VALUES (?, ?, ?)
+            """;
 
     private final JdbcTemplate jdbcTemplate;
 
@@ -23,31 +34,57 @@ public class InteresesSkipListener implements SkipListener<LegacyIntereses, Mode
     @Override
     public void onSkipInRead(Throwable t) {
 
-        log.error("REGISTRO OMITIDO DURANTE LECTURA | MOTIVO {}", t.getMessage());
+        log.warn(
+                "REGISTRO OMITIDO DURANTE LECTURA | MOTIVO {}",
+                t.getMessage());
 
-        guardarError("READ", null, t);
+        guardarError(
+                "READ",
+                null,
+                t);
     }
 
     @Override
-    public void onSkipInWrite(ModernIntereses item, Throwable t) {
+    public void onSkipInWrite(
+            ModernIntereses item,
+            Throwable t) {
 
-        log.error("REGISTRO OMITIDO DURANTE ESCRITURA | MOTIVO {}", item, t.getMessage());
+        log.warn(
+                "REGISTRO OMITIDO DURANTE ESCRITURA {} | MOTIVO {}",
+                item,
+                t.getMessage());
 
-        guardarError("WRITE", item.toString(), t);
+        guardarError(
+                "WRITE",
+                item.toString(),
+                t);
     }
 
     @Override
-    public void onSkipInProcess(LegacyIntereses item, Throwable t) {
+    public void onSkipInProcess(
+            LegacyIntereses item,
+            Throwable t) {
 
-        log.error(
-        "REGISTRO OMITIDO {} | MOTIVO {}",
-        item,
-        t.getMessage());
+        log.warn(
+                "REGISTRO OMITIDO DURANTE PROCESAMIENTO {} | MOTIVO {}",
+                item,
+                t.getMessage());
+
+        guardarError(
+                "PROCESS",
+                item.toString(),
+                t);
     }
 
-    private void guardarError(String tipo, String item, Throwable t) {
+    private void guardarError(
+            String tipo,
+            String item,
+            Throwable t) {
 
-        String sql = "INSERT INTO ERRORES_BATCH (tipo, registro, detalle) VALUES (?, ?, ?)";
-        jdbcTemplate.update(sql, tipo, item, t.getMessage());
+        jdbcTemplate.update(
+                INSERT_ERROR_SQL,
+                tipo,
+                item,
+                t.getMessage());
     }
 }

@@ -124,7 +124,8 @@ public class LegacyCuentasProcessor
                 monto,
                 descripcion,
                 estado,
-                detalleValidacion
+                detalleValidacion,
+                item.lineaOrigen()
         );
     }
 
