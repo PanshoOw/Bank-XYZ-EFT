@@ -1,5 +1,7 @@
 package com.duoc.cuentas.config;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -10,6 +12,10 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 public class SecurityConfig {
 
+        private static final String SCOPE_WEB = "SCOPE_WEB";
+        private static final String SCOPE_MOBILE = "SCOPE_MOBILE";
+        private static final String SCOPE_ATM = "SCOPE_ATM";
+
         @Bean
         SecurityFilterChain securityFilterChain(HttpSecurity http)
                 throws Exception {
@@ -19,30 +25,45 @@ public class SecurityConfig {
 
                         .authorizeHttpRequests(auth -> auth
 
-                                // Actuator necesario para health checks
+                                .dispatcherTypeMatchers(
+                                        DispatcherType.ERROR
+                                ).permitAll()
+
                                 .requestMatchers(
                                         "/actuator/health",
                                         "/actuator/info"
                                 ).permitAll()
 
-                                // Consultas de cuentas:
-                                // Web, Mobile y ATM pueden consultar
                                 .requestMatchers(
                                         HttpMethod.GET,
                                         "/api/cuentas/**"
                                 ).hasAnyAuthority(
-                                        "SCOPE_WEB",
-                                        "SCOPE_MOBILE",
-                                        "SCOPE_ATM"
+                                        SCOPE_WEB,
+                                        SCOPE_MOBILE,
+                                        SCOPE_ATM
                                 )
 
-                                // Solo el canal ATM puede retirar
                                 .requestMatchers(
                                         HttpMethod.POST,
                                         "/api/cuentas/*/retiro"
-                                ).hasAuthority("SCOPE_ATM")
+                                ).hasAuthority(SCOPE_ATM)
 
-                                .anyRequest().authenticated()
+                                .requestMatchers(
+                                        HttpMethod.POST,
+                                        "/api/cuentas"
+                                ).hasAuthority(SCOPE_WEB)
+
+                                .requestMatchers(
+                                        HttpMethod.PUT,
+                                        "/api/cuentas/*"
+                                ).hasAuthority(SCOPE_WEB)
+
+                                .requestMatchers(
+                                        HttpMethod.PATCH,
+                                        "/api/cuentas/*/cerrar"
+                                ).hasAuthority(SCOPE_WEB)
+
+                                .anyRequest().denyAll()
                         )
 
                         .oauth2ResourceServer(oauth2 ->
