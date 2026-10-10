@@ -1,0 +1,47 @@
+server:
+  port: 8086
+
+spring:
+  datasource:
+    url: jdbc:oracle:thin:@bankxyz_tp
+    username: BANKXYZ_APP
+    password: ${BANKXYZ_DB_PASSWORD}
+    driver-class-name: oracle.jdbc.OracleDriver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      max-lifetime: 90000
+      keepalive-time: 30000
+      connection-timeout: 30000
+      validation-timeout: 5000
+      data-source-properties:
+        oracle.net.tns_admin: ${ORACLE_WALLET_DIR}
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${AUTH_SERVER_ISSUER_URI:http://auth-server:9000}
+          jwk-set-uri: ${AUTH_SERVER_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URL:http://localhost:8761/eureka/}
+
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+  endpoint:
+    health:
+      show-details: always
+
+info:
+  app:
+    name: clientes-service
