@@ -2,8 +2,14 @@ server:
   port: 8081
 
 bankxyz:
-  backend:
-    url: ${BACKEND_URL:http://localhost:8080}
+  cuentas:
+    url: http://cuentas-service
+
+  clientes:
+    url: http://clientes-service
+
+  pagos:
+    url: http://pagos-service
 
 eureka:
   client:
@@ -60,4 +66,5 @@ spring:
     oauth2:
       resourceserver:
         jwt:
-          issuer-uri: ${AUTH_SERVER_ISSUER_URI:http://localhost:9000}
+          issuer-uri: ${AUTH_SERVER_ISSUER_URI:http://auth-server:9000}
+          jwk-set-uri: ${AUTH_SERVER_JWK_SET_URI:http://localhost:9000/oauth2/jwks}
