@@ -1,70 +1,173 @@
-﻿# Bank XYZ - Microservicios seguros y resilientes en la nube
+﻿# Bank XYZ — Modernización Backend con Spring Batch, BFF y Microservicios en AWS
 
 Proyecto desarrollado para la asignatura **Desarrollo Backend III (PBY2203)** de Duoc UC.
 
-La solución implementa una arquitectura distribuida para Bank XYZ basada en Spring Boot y Spring Cloud, incorporando Backend for Frontend (BFF), configuración centralizada, descubrimiento de servicios, OAuth 2.0, tolerancia a fallos con Resilience4j, mensajería asíncrona con Apache Kafka y contenerización mediante Docker y Docker Compose.
+La solución moderniza el escenario legacy de **Bank XYZ** mediante una arquitectura distribuida basada en Spring Boot, Spring Cloud, Spring Batch, OAuth 2.0/JWT, Resilience4j, Apache Kafka, Oracle Autonomous Database, Docker Compose y despliegue real en AWS EC2.
+
+> **Repositorio GitHub:** https://github.com/PanshoOw/Bank-XYZ-EFT
 
 ---
 
-## 1. Objetivo
+## 1. Objetivo del proyecto
 
-El objetivo del proyecto es preparar el ecosistema de microservicios de Bank XYZ para operar como una solución distribuida, segura y resiliente.
+Bank XYZ mantiene originalmente una plataforma legacy monolítica encargada de procesos bancarios críticos, procesamiento batch y atención de distintos canales.
 
-La implementación incorpora:
+El proyecto busca modernizar esa arquitectura mediante:
 
-- OAuth 2.0 mediante un Authorization Server independiente.
-- JWT para proteger los BFF Web, Mobile y ATM.
-- Scopes específicos para cada canal.
-- Spring Cloud Config para configuración centralizada.
-- Eureka Server para Service Discovery.
-- Resilience4j con Circuit Breaker, Retry, Bulkhead y fallback.
-- Apache Kafka para procesamiento asíncrono de eventos.
-- Docker para contenerizar los componentes.
-- Docker Compose para orquestar el ecosistema completo.
-- HTTPS en los tres BFF.
-- Oracle Autonomous Database como capa de persistencia.
+- migración de procesos legacy a Spring Batch;
+- separación del sistema en microservicios;
+- implementación del patrón Backend for Frontend;
+- seguridad distribuida mediante OAuth 2.0 y JWT;
+- tolerancia a fallos mediante Resilience4j;
+- mensajería asíncrona mediante Apache Kafka;
+- configuración y descubrimiento dinámico mediante Spring Cloud;
+- contenerización mediante Docker;
+- despliegue y escalabilidad horizontal en AWS.
 
 ---
 
-## 2. Arquitectura
+## 2. Procesos críticos de modernización
 
-| Componente | Puerto | Función |
+La solución aborda los cinco procesos críticos considerados para la migración de Bank XYZ:
+
+1. **Migración de procesos Batch a Spring Batch.**
+2. **División del sistema monolítico en microservicios.**
+3. **Implementación del patrón Backend for Frontend (BFF).**
+4. **Implementación de seguridad distribuida mediante Spring Security, OAuth 2.0 y JWT.**
+5. **Integración de mensajería asíncrona mediante Apache Kafka.**
+
+---
+
+## 3. Requerimientos de negocio y decisiones de arquitectura
+
+### 3.1 Escalabilidad y disponibilidad
+
+Los dominios de Cuentas, Pagos y Clientes se separaron en microservicios independientes.
+
+Esto permite:
+
+- desplegar cada dominio de manera independiente;
+- escalar los servicios que presentan mayor demanda;
+- reducir el acoplamiento respecto del backend monolítico;
+- distribuir solicitudes entre múltiples instancias mediante Eureka y Spring Cloud LoadBalancer.
+
+Durante la validación en AWS se ejecutaron **dos réplicas simultáneas** de Cuentas, Pagos y Clientes.
+
+### 3.2 Seguridad específica para cada canal
+
+Web, Mobile y ATM poseen necesidades distintas de información y seguridad.
+
+Por esta razón se implementaron tres BFF independientes y scopes OAuth2 específicos:
+
+| Canal | OAuth Client | Scope |
+|---|---|---|
+| Web | `bankxyz-web` | `WEB` |
+| Mobile | `bankxyz-mobile` | `MOBILE` |
+| ATM | `bankxyz-atm` | `ATM` |
+
+Cada BFF valida únicamente los permisos asociados a su canal.
+
+### 3.3 Resiliencia y procesamiento asíncrono
+
+Las comunicaciones entre los BFF y los microservicios utilizan Resilience4j para evitar que una indisponibilidad temporal provoque una falla general del sistema.
+
+Las operaciones monetarias no utilizan reintentos automáticos desde los BFF, evitando el riesgo de duplicar transacciones.
+
+Apache Kafka desacopla las operaciones bancarias de la auditoría asíncrona.
+
+---
+
+## 4. Arquitectura general
+
+```mermaid
+flowchart LR
+
+    WEB[Cliente Web] -->|HTTPS + JWT WEB| BWEB[BFF Web]
+    MOB[Cliente Mobile] -->|HTTPS + JWT MOBILE| BMOB[BFF Mobile]
+    ATM[Cliente ATM] -->|HTTPS + JWT ATM| BATM[BFF ATM]
+
+    AUTH[Authorization Server] --> WEB
+    AUTH --> MOB
+    AUTH --> ATM
+
+    BWEB --> CUENTAS[Cuentas Service]
+    BWEB --> PAGOS[Pagos Service]
+    BWEB --> CLIENTES[Clientes Service]
+
+    BMOB --> CUENTAS
+    BMOB --> PAGOS
+    BMOB --> CLIENTES
+
+    BATM --> CUENTAS
+
+    EUREKA[Eureka Server] --- BWEB
+    EUREKA --- BMOB
+    EUREKA --- BATM
+    EUREKA --- CUENTAS
+    EUREKA --- PAGOS
+    EUREKA --- CLIENTES
+
+    CONFIG[Config Server] --> BWEB
+    CONFIG --> BMOB
+    CONFIG --> BATM
+    CONFIG --> CUENTAS
+    CONFIG --> PAGOS
+    CONFIG --> CLIENTES
+
+    CUENTAS --> ORACLE[(Oracle Autonomous DB)]
+    PAGOS --> ORACLE
+    CLIENTES --> ORACLE
+
+    CUENTAS --> KAFKA[Apache Kafka]
+    PAGOS --> KAFKA
+
+    KAFKA --> AUDITORIA[Auditoria Service]
+
+    BATCH[Backend / Spring Batch] --> ORACLE
+```
+
+---
+
+## 5. Componentes
+
+| Componente | Puerto | Responsabilidad |
 |---|---:|---|
-| Backend Bank XYZ | 8080 | API principal, Oracle y Kafka |
+| Backend / Spring Batch | 8080 | Procesamiento batch y funcionalidades transicionales |
 | BFF Web | 8081 HTTPS | Backend especializado para Web |
-| BFF Mobile | 8082 HTTPS | Backend especializado para Mobile |
-| BFF ATM | 8083 HTTPS | Backend especializado para ATM |
-| Eureka Discovery Server | 8761 | Registro y descubrimiento de servicios |
+| BFF Mobile | 8082 HTTPS | Backend especializado para dispositivos móviles |
+| BFF ATM | 8083 HTTPS | Consultas de saldo y retiros ATM |
+| Cuentas Service | 8084 interno | Gestión de cuentas y retiros |
+| Pagos Service | 8085 interno | Pagos, depósitos y transferencias |
+| Clientes Service | 8086 interno | Gestión de clientes |
+| Auditoria Service | 8087 interno | Consumo independiente de eventos Kafka |
+| Eureka Server | 8761 | Service Discovery |
 | Config Server | 8888 | Configuración centralizada |
 | Authorization Server | 9000 | OAuth 2.0 y emisión de JWT |
 | Apache Kafka | 9092 / 29092 | Mensajería asíncrona |
 
-Los contenedores se comunican mediante la red:
+Todos los contenedores se comunican mediante:
 
 ```text
 bankxyz-network
 ```
 
-Kafka utiliza dos listeners:
-
-```text
-Host:   localhost:9092
-Docker: kafka:29092
-```
-
 ---
 
-## 3. Estructura del proyecto
+## 6. Estructura del proyecto
 
 ```text
-demo/
+Proyecto_EFT/
 ├── auth-server/
-├── bff-web/
-├── bff-mobile/
+├── auditoria-service/
 ├── bff-atm/
+├── bff-mobile/
+├── bff-web/
+├── clientes-service/
 ├── config-server/
+├── cuentas-service/
 ├── discovery-server/
-├── src/
+├── pagos-service/
+├── src/                         # Backend principal / Spring Batch
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
@@ -73,55 +176,158 @@ demo/
 └── README.md
 ```
 
-### Backend principal
+Para la entrega final se incorporan además:
 
-Contiene la lógica bancaria, persistencia mediante Oracle Autonomous Database y la integración con Apache Kafka.
-
-### BFF Web
-
-Backend optimizado para clientes Web. Incorpora mecanismos de resiliencia para las operaciones de lectura.
-
-### BFF Mobile
-
-Backend especializado para clientes móviles.
-
-### BFF ATM
-
-Backend destinado a operaciones de cajero automático, incluyendo consultas de saldo y retiros.
-
-### Authorization Server
-
-Servidor independiente encargado de emitir tokens OAuth 2.0 mediante JWT.
-
-### Config Server
-
-Centraliza la configuración de los BFF.
-
-### Discovery Server
-
-Implementa Eureka Server para registro y descubrimiento de servicios.
+```text
+instrucciones.md
+despliegue.md
+Informe técnico PDF
+Video presentación MP4
+```
 
 ---
 
-## 4. Seguridad OAuth 2.0
+# 7. Spring Batch
 
-Se implementó Spring Authorization Server utilizando el flujo:
+Se implementaron tres procesos batch requeridos para Bank XYZ.
+
+## 7.1 Reporte de Transacciones Diarias
+
+```text
+reporteTransaccionesDiariasJob
+```
+
+Procesa las transacciones del período correspondiente y genera los resultados asociados al proceso diario.
+
+## 7.2 Cálculo de Intereses Mensuales
+
+```text
+calculoInteresesMensualesJob
+```
+
+Procesa las cuentas y calcula los intereses mensuales correspondientes.
+
+## 7.3 Estados de Cuenta Anuales
+
+```text
+estadosCuentaAnualesJob
+```
+
+Procesa los movimientos necesarios para la generación de estados de cuenta anuales.
+
+## Características implementadas
+
+Los tres procesos utilizan:
+
+- Spring Batch;
+- particionamiento;
+- `BankPartitioner`;
+- `TaskExecutorPartitionHandler`;
+- `gridSize = 5`;
+- procesamiento paralelo;
+- manejo de errores;
+- `retry` para fallos transitorios;
+- política de `skip`;
+- listeners de ejecución;
+- reejecución ante fallos críticos.
+
+También se implementó:
+
+```text
+CriticalFailureRestartListener
+```
+
+para reiniciar automáticamente una ejecución crítica utilizando:
+
+```text
+JobOperator.restart(...)
+```
+
+La funcionalidad fue validada provocando una ejecución `FAILED` y comprobando posteriormente la finalización `COMPLETED` de la misma `JobInstance`.
+
+---
+
+# 8. Backend for Frontend
+
+Se implementaron tres BFF independientes.
+
+## 8.1 BFF Web
+
+Puerto:
+
+```text
+8081 HTTPS
+```
+
+El canal Web dispone de operaciones completas para:
+
+- clientes;
+- cuentas;
+- apertura y mantenimiento de cuentas;
+- cierre de cuentas;
+- pagos;
+- depósitos;
+- transferencias.
+
+Las operaciones de lectura incorporan mecanismos adicionales de resiliencia.
+
+## 8.2 BFF Mobile
+
+Puerto:
+
+```text
+8082 HTTPS
+```
+
+Entrega contratos adaptados al canal móvil, incluyendo:
+
+- consulta de cuentas;
+- consulta de clientes;
+- pagos;
+- transferencias.
+
+El objetivo es entregar únicamente los datos necesarios para el canal.
+
+## 8.3 BFF ATM
+
+Puerto:
+
+```text
+8083 HTTPS
+```
+
+Expone únicamente operaciones propias de un cajero automático:
+
+- consulta de saldo;
+- retiro de dinero.
+
+---
+
+# 9. OAuth 2.0 y JWT
+
+Se implementó un Authorization Server independiente mediante Spring Authorization Server.
+
+El flujo utilizado es:
 
 ```text
 client_credentials
 ```
 
-Se definieron tres clientes:
+Clientes registrados:
 
 | Cliente | Scope |
 |---|---|
-| bankxyz-web | WEB |
-| bankxyz-mobile | MOBILE |
-| bankxyz-atm | ATM |
+| `bankxyz-web` | `WEB` |
+| `bankxyz-mobile` | `MOBILE` |
+| `bankxyz-atm` | `ATM` |
 
-Cada BFF funciona como OAuth2 Resource Server.
+Endpoint local para obtener tokens:
 
-Las rutas están protegidas según el scope correspondiente:
+```text
+POST http://localhost:9000/oauth2/token
+```
+
+Las rutas se protegen de acuerdo con su canal:
 
 ```text
 /api/web/**     -> SCOPE_WEB
@@ -129,151 +335,338 @@ Las rutas están protegidas según el scope correspondiente:
 /api/atm/**     -> SCOPE_ATM
 ```
 
-Endpoint de obtención de token:
+Un token perteneciente a un canal diferente es rechazado mediante:
 
 ```text
-POST http://localhost:9000/oauth2/token
+403 Forbidden
 ```
 
-Ejemplo de parámetros:
-
-```text
-grant_type=client_credentials
-scope=WEB
-```
-
-Un token perteneciente a un canal diferente es rechazado mediante HTTP `403 Forbidden`.
-
-Los secretos OAuth2 no se almacenan directamente en el repositorio.
+Los secretos OAuth2 se configuran mediante variables de entorno y no se almacenan directamente en el repositorio.
 
 ---
 
-## 5. Resiliencia con Resilience4j
+# 10. HTTPS
 
-El BFF Web implementa mecanismos de tolerancia a fallos para operaciones de lectura hacia el Backend.
+Los tres BFF utilizan HTTPS.
 
-Se utilizan:
+Los keystores PKCS12 utilizados durante la ejecución se encuentran fuera del control de versiones.
 
-- Circuit Breaker
-- Retry
-- Bulkhead
-- Fallback
-
-El Circuit Breaker detecta fallos repetidos del Backend y cambia a estado `OPEN` para evitar llamadas innecesarias mientras el servicio se encuentra temporalmente no disponible.
-
-El fallback entrega una respuesta controlada utilizando:
+Las rutas utilizadas por Docker son:
 
 ```text
-estado = TEMPORALMENTE_NO_DISPONIBLE
+bff-web/src/main/resources/keystore.p12
+bff-mobile/src/main/resources/keystore.p12
+bff-atm/src/main/resources/keystore.p12
 ```
 
-Las operaciones que generan efectos secundarios, como retiros ATM, no utilizan reintentos automáticos para evitar duplicar una transacción.
+Sus contraseñas se reciben mediante variables de entorno.
+
+Al utilizar certificados autofirmados durante desarrollo y evaluación, las pruebas con `curl` pueden requerir:
+
+```text
+-k
+```
 
 ---
 
-## 6. Mensajería asíncrona con Kafka
+# 11. Resilience4j
 
-Apache Kafka se utiliza para procesar eventos generados por retiros bancarios.
+Resilience4j protege las llamadas:
 
-Tópico:
+```text
+BFF -> Microservicio
+```
+
+## BFF Web
+
+Las operaciones de lectura implementan:
+
+- Circuit Breaker;
+- Retry;
+- Bulkhead;
+- fallback.
+
+Ejemplo de respuesta de fallback:
+
+```text
+TEMPORALMENTE_NO_DISPONIBLE
+```
+
+## BFF Mobile y ATM
+
+También incorporan Circuit Breaker y fallback para las comunicaciones dependientes de servicios internos.
+
+## Operaciones monetarias
+
+Las operaciones que generan efectos secundarios no utilizan reintentos automáticos desde el BFF.
+
+Entre ellas:
+
+- pagos;
+- depósitos;
+- transferencias;
+- retiros.
+
+Esto evita que un retry automático pueda duplicar una transacción.
+
+Durante la validación en AWS se comprobó además un caso real de fallback debido al tiempo requerido para inicializar el pool Hikari de Oracle. Una vez establecida la conexión, la misma solicitud respondió correctamente.
+
+---
+
+# 12. Gestión de Cuentas
+
+El microservicio:
+
+```text
+cuentas-service
+```
+
+implementa:
+
+- apertura de cuentas;
+- mantenimiento;
+- cierre;
+- consulta;
+- saldo;
+- retiro ATM.
+
+Las funciones administrativas se restringen al canal Web.
+
+Las consultas se habilitan de acuerdo con las necesidades de Web, Mobile y ATM.
+
+---
+
+# 13. Procesamiento de Pagos
+
+El microservicio:
+
+```text
+pagos-service
+```
+
+implementa:
+
+- pagos;
+- depósitos;
+- transferencias.
+
+Las operaciones monetarias actualizan Oracle dentro de una transacción de base de datos y posteriormente generan eventos Kafka.
+
+Como mejora futura se propone implementar **Transactional Outbox** para reforzar la consistencia entre la transacción de Oracle y la publicación del evento.
+
+---
+
+# 14. Gestión de Clientes
+
+El microservicio:
+
+```text
+clientes-service
+```
+
+administra información y perfiles de clientes.
+
+Incluye operaciones de:
+
+- consulta;
+- creación;
+- actualización.
+
+Está disponible para los canales Web y Mobile según las autorizaciones configuradas.
+
+---
+
+# 15. Apache Kafka
+
+Kafka se utiliza para la integración asíncrona entre los servicios transaccionales y Auditoría.
+
+Tópicos utilizados:
 
 ```text
 retiro-realizado
+pago-realizado
+deposito-realizado
+transferencia-realizada
+```
+
+Productores:
+
+```text
+cuentas-service
+    -> retiro-realizado
+
+pagos-service
+    -> pago-realizado
+    -> deposito-realizado
+    -> transferencia-realizada
+```
+
+---
+
+# 16. Auditoría
+
+A diferencia de la implementación inicial, el consumidor Kafka fue separado en un microservicio independiente:
+
+```text
+auditoria-service
 ```
 
 Consumer group:
 
 ```text
-auditoria-bankxyz
+auditoria-service
 ```
 
-El tópico dispone de tres particiones:
-
-```text
-retiro-realizado-0
-retiro-realizado-1
-retiro-realizado-2
-```
-
-El Backend ejecuta tres consumidores dentro del mismo grupo, distribuyendo el procesamiento de las tres particiones.
+Se configuró concurrencia de consumidores para procesar particiones Kafka en paralelo.
 
 Flujo:
 
 ```text
-BFF ATM
-   |
-   v
-Backend
-   |
-   v
-Kafka Producer
-   |
-   v
-retiro-realizado
-   |
-   v
-Consumer auditoria-bankxyz
+Pagos / Cuentas
+      |
+      v
+Apache Kafka
+      |
+      v
+Auditoria Service
 ```
 
-Ejemplo de evento:
+Durante la validación en AWS se ejecutó un depósito real.
 
-```json
-{
-  "cuentaId": 101,
-  "monto": 1,
-  "saldoDisponible": 6579,
-  "fechaHora": "..."
-}
-```
+La operación:
 
-La publicación y el consumo se realizan de manera asíncrona.
+1. fue recibida por BFF Web;
+2. fue procesada por `pagos-service`;
+3. modificó el saldo almacenado en Oracle;
+4. produjo un evento `deposito-realizado`;
+5. fue consumida por `auditoria-service`.
+
+El `operacionId` registrado por Auditoría coincidió con el retornado por la operación original.
 
 ---
 
-## 7. Docker
+# 17. Spring Cloud Config
 
-Cada componente desarrollado posee su correspondiente `Dockerfile`.
-
-Los servicios son construidos como aplicaciones Spring Boot y ejecutados dentro de contenedores independientes.
-
-También se utilizan archivos `.dockerignore` para evitar copiar al contexto de construcción archivos innecesarios o sensibles.
-
----
-
-## 8. Docker Compose
-
-El archivo `docker-compose.yml` permite orquestar desde una sola configuración los siguientes componentes:
+El Config Server se ejecuta en:
 
 ```text
+8888
+```
+
+Centraliza configuración para los BFF y microservicios.
+
+Los servicios cargan su configuración mediante:
+
+```text
+http://config-server:8888
+```
+
+dentro de la red Docker.
+
+---
+
+# 18. Eureka y Service Discovery
+
+Eureka se ejecuta en:
+
+```text
+8761
+```
+
+Los servicios se registran dinámicamente y los BFF utilizan Spring Cloud LoadBalancer para resolver sus instancias.
+
+Durante la validación en AWS se obtuvo:
+
+```text
+AUDITORIA-SERVICE     1/1 UP
+BFF-ATM               1/1 UP
+BFF-MOBILE            1/1 UP
+BFF-WEB               1/1 UP
+CLIENTES-SERVICE      2/2 UP
+CUENTAS-SERVICE       2/2 UP
+PAGOS-SERVICE         2/2 UP
+```
+
+---
+
+# 19. Oracle Autonomous Database
+
+Oracle Autonomous Database se utiliza como capa de persistencia.
+
+Acceden a Oracle:
+
+```text
+Backend / Spring Batch
+Cuentas Service
+Pagos Service
+Clientes Service
+```
+
+El Oracle Wallet no se almacena en Git.
+
+Su ubicación se configura mediante:
+
+```text
+ORACLE_WALLET_HOST_PATH
+```
+
+Docker Compose monta el Wallet únicamente en los contenedores que requieren acceso a Oracle.
+
+---
+
+# 20. Docker
+
+Cada aplicación dispone de un Dockerfile multi-stage.
+
+Las imágenes se construyen utilizando Maven y Java 21 para posteriormente ejecutar únicamente el artefacto generado en una imagen JRE.
+
+Los archivos `.dockerignore` evitan incorporar al contexto de construcción archivos innecesarios o sensibles.
+
+---
+
+# 21. Docker Compose
+
+`docker-compose.yml` orquesta:
+
+```text
+kafka
 discovery-server
 config-server
 auth-server
 backend
+cuentas-service
+pagos-service
+clientes-service
+auditoria-service
 bff-web
 bff-mobile
 bff-atm
-kafka
 ```
 
-Todos los servicios se encuentran conectados mediante:
+Todos utilizan:
 
 ```text
 bankxyz-network
 ```
 
-Para levantar el ecosistema:
+Los tres microservicios de negocio principales no utilizan un `container_name` fijo, permitiendo crear múltiples réplicas.
+
+## Levantar el ecosistema
 
 ```powershell
-docker compose up -d --build
+docker compose up -d --build `
+  --scale cuentas-service=2 `
+  --scale pagos-service=2 `
+  --scale clientes-service=2
 ```
 
-Para comprobar el estado:
+## Comprobar estado
 
 ```powershell
 docker compose ps
 ```
 
-Para detenerlo:
+## Detener
 
 ```powershell
 docker compose down
@@ -281,17 +674,23 @@ docker compose down
 
 ---
 
-## 9. Variables de entorno
+# 22. Variables de entorno
 
-El archivo `.env` real no se almacena en Git.
+El archivo:
 
-Se incluye como plantilla:
+```text
+.env
+```
+
+no se almacena en Git.
+
+El repositorio incluye:
 
 ```text
 .env.example
 ```
 
-Variables requeridas:
+Variables sensibles principales:
 
 ```text
 BANKXYZ_DB_PASSWORD
@@ -306,251 +705,384 @@ BFF_MOBILE_SSL_KEYSTORE_PASSWORD
 BFF_ATM_SSL_KEYSTORE_PASSWORD
 ```
 
-Para crear el archivo local:
+Crear archivo local:
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Luego deben reemplazarse los valores `REEMPLAZAR` por credenciales válidas.
+Luego se deben reemplazar los valores de ejemplo por credenciales reales.
 
-El archivo `.env` nunca debe subirse al repositorio.
-
----
-
-## 10. Oracle Autonomous Database
-
-El Backend utiliza Oracle Autonomous Database.
-
-El Oracle Wallet permanece fuera del repositorio.
-
-Su ubicación se configura mediante:
+Nunca deben versionarse:
 
 ```text
-ORACLE_WALLET_HOST_PATH
+.env
+Oracle Wallet
+contraseñas
+OAuth client secrets
+tokens
+keystore.p12
 ```
-
-Docker Compose monta dicha ruta dentro del contenedor del Backend.
 
 ---
 
-## 11. HTTPS y keystores
+# 23. Requisitos de ejecución
 
-Los tres BFF funcionan mediante HTTPS utilizando keystores PKCS12 locales:
+Para ejecutar el ecosistema completo se requiere:
+
+- Docker Engine o Docker Desktop;
+- Docker Compose v2;
+- acceso a Oracle Autonomous Database;
+- Oracle Wallet válido;
+- keystores PKCS12 para los BFF;
+- archivo `.env` configurado.
+
+Cuando se utilizan los Dockerfiles multi-stage no es necesario disponer de Maven o Java instalados directamente en el host.
+
+---
+
+# 24. Despliegue en AWS
+
+La arquitectura fue desplegada y probada realmente en AWS EC2.
+
+Entorno utilizado:
 
 ```text
-bff-web/keystore.p12
-bff-mobile/keystore.p12
-bff-atm/keystore.p12
+AWS EC2
+Ubuntu Server 24.04 LTS
+t3.large
+2 vCPU
+aprox. 8 GiB RAM
+30 GiB gp3
+Docker Engine
+Docker Compose v2
 ```
 
-Los keystores no se almacenan en Git.
+Para la evaluación se utilizó una única instancia EC2 como host Docker.
 
-Pueden generarse mediante `keytool`.
+Los microservicios continúan ejecutándose de manera independiente dentro de contenedores.
 
-Ejemplo:
+## Puertos externos utilizados
 
-```powershell
-keytool -genkeypair `
-  -alias bankxyz `
-  -keyalg RSA `
-  -keysize 2048 `
-  -storetype PKCS12 `
-  -keystore keystore.p12 `
-  -validity 3650
-```
+| Puerto | Función |
+|---:|---|
+| 22 | SSH |
+| 8081 | BFF Web HTTPS |
+| 8082 | BFF Mobile HTTPS |
+| 8083 | BFF ATM HTTPS |
+| 8761 | Eureka |
+| 9000 | Authorization Server |
 
-La contraseña debe coincidir con la variable de entorno correspondiente.
+Los puertos internos de los microservicios no se exponen públicamente.
 
-Al utilizar certificados autofirmados en desarrollo, `curl` puede requerir:
+---
+
+# 25. Escalabilidad horizontal en AWS
+
+Se ejecutaron dos instancias simultáneas de cada microservicio clave:
 
 ```text
--k
+cuentas-service=2
+pagos-service=2
+clientes-service=2
+```
+
+Docker confirmó seis contenedores activos y Eureka registró:
+
+```text
+CLIENTES-SERVICE      2/2 UP
+CUENTAS-SERVICE       2/2 UP
+PAGOS-SERVICE         2/2 UP
+```
+
+Los health checks de las instancias comprobaron además:
+
+```text
+Config Server -> UP
+Eureka        -> UP
+Oracle DB     -> UP
 ```
 
 ---
 
-## 12. Requisitos de ejecución
+# 26. Validación end-to-end en AWS
 
-- Docker Desktop
-- Docker Compose
-- Oracle Wallet válido
-- Acceso a Oracle Autonomous Database
-- Keystores PKCS12 para Web, Mobile y ATM
-- Archivo `.env` configurado
+Se validó desde un equipo externo el flujo:
 
-Para iniciar:
-
-```powershell
-docker compose up -d --build
+```text
+Windows
+   |
+   v
+Authorization Server AWS
+   |
+   | JWT WEB
+   v
+BFF Web HTTPS
+   |
+   v
+Eureka + Spring Cloud LoadBalancer
+   |
+   v
+Cuentas Service
+   |
+   v
+Oracle Autonomous Database
 ```
 
-Comprobar:
+La consulta:
 
-```powershell
-docker compose ps
+```text
+GET /api/web/cuentas/101
 ```
 
-Los ocho componentes principales deben aparecer en estado `Up`.
+respondió:
+
+```text
+HTTP 200
+```
+
+con datos reales almacenados en Oracle.
 
 ---
 
-## 13. Ejemplo OAuth2
+# 27. Validación Kafka end-to-end en AWS
+
+También se validó el flujo:
+
+```text
+Cliente externo
+      |
+      v
+BFF Web
+      |
+      v
+Pagos Service
+     / \
+    /   \
+Oracle   Kafka
+          |
+          v
+  Auditoria Service
+```
+
+Se realizó un depósito sobre una cuenta real.
+
+Resultado:
+
+```text
+HTTP 200
+tipo = DEPOSITO
+estado = COMPLETADA
+```
+
+El saldo se actualizó en Oracle.
+
+Posteriormente Auditoría registró:
+
+```text
+topic=deposito-realizado
+key=<mismo operacionId>
+particion=0
+evento=<operación realizada>
+```
+
+demostrando el procesamiento asíncrono completo.
+
+---
+
+# 28. Ejemplo OAuth2
 
 Solicitar token Web:
 
 ```powershell
-curl.exe -u "bankxyz-web:CLIENT_SECRET" `
-  -X POST `
-  -H "Content-Type: application/x-www-form-urlencoded" `
-  -d "grant_type=client_credentials&scope=WEB" `
-  http://localhost:9000/oauth2/token
+$oauth = curl.exe -sS `
+    --user "bankxyz-web:CLIENT_SECRET" `
+    -X POST `
+    -H "Content-Type: application/x-www-form-urlencoded" `
+    -d "grant_type=client_credentials" `
+    -d "scope=WEB" `
+    http://localhost:9000/oauth2/token |
+    ConvertFrom-Json
+
+$token = $oauth.access_token
 ```
 
-Utilizar token:
+Consultar una cuenta:
 
 ```powershell
-curl.exe -sk `
-  -H "Authorization: Bearer TOKEN" `
-  https://localhost:8081/api/web/cuentas/101
+curl.exe -k `
+    -H "Authorization: Bearer $token" `
+    https://localhost:8081/api/web/cuentas/101
 ```
 
 ---
 
-## 14. Ejemplo de retiro ATM
+# 29. Evidencias funcionales obtenidas
 
-Endpoint:
+La implementación fue validada mediante:
 
-```text
-POST https://localhost:8083/api/atm/cuentas/101/retiro
-```
-
-Headers:
-
-```text
-Authorization: Bearer <TOKEN_ATM>
-Content-Type: application/json
-```
-
-Body:
-
-```json
-{
-  "monto": 1
-}
-```
-
-Ejemplo de respuesta:
-
-```json
-{
-  "cuentaId": 101,
-  "montoRetirado": 1,
-  "saldoDisponible": 6579,
-  "estadoOperacion": "CONFIRMADA",
-  "mensaje": "Retiro realizado correctamente"
-}
-```
-
-Después del retiro, el Backend publica un evento `retiro-realizado` y uno de los consumidores del grupo `auditoria-bankxyz` lo procesa.
-
----
-
-## 15. Compilación Maven
-
-El proyecto principal puede compilarse mediante:
-
-```powershell
-.\mvnw.cmd clean package -DskipTests
-```
-
-Los módulos adicionales:
-
-```powershell
-.\mvnw.cmd -f .\discovery-server\pom.xml clean package -DskipTests
-.\mvnw.cmd -f .\config-server\pom.xml clean package -DskipTests
-.\mvnw.cmd -f .\auth-server\pom.xml clean package -DskipTests
-.\mvnw.cmd -f .\bff-web\pom.xml clean package -DskipTests
-.\mvnw.cmd -f .\bff-mobile\pom.xml clean package -DskipTests
-.\mvnw.cmd -f .\bff-atm\pom.xml clean package -DskipTests
-```
+- ejecución de los tres jobs Spring Batch;
+- procesamiento batch paralelo con `gridSize = 5`;
+- retry y skip de errores;
+- reinicio de un job fallido;
+- OAuth2 funcional;
+- JWT funcional;
+- scopes Web, Mobile y ATM;
+- rechazo de scopes incorrectos;
+- HTTPS en BFF Web;
+- HTTPS en BFF Mobile;
+- HTTPS en BFF ATM;
+- Eureka Service Discovery;
+- Spring Cloud Config;
+- Spring Cloud LoadBalancer;
+- Circuit Breaker;
+- Retry;
+- Bulkhead;
+- fallback;
+- Cuentas Service;
+- Pagos Service;
+- Clientes Service;
+- productores Kafka;
+- consumidor Kafka independiente;
+- Oracle Autonomous Database;
+- Docker;
+- Docker Compose;
+- escalabilidad horizontal;
+- despliegue real en AWS;
+- acceso a los BFF desde fuera de AWS;
+- consulta autenticada desde AWS hasta Oracle;
+- operación Pagos -> Oracle -> Kafka -> Auditoría.
 
 ---
 
-## 16. Evidencias funcionales
+# 30. Tecnologías utilizadas
 
-La entrega incluye evidencias de:
-
-- Emisión de tokens OAuth2.
-- Acceso autorizado mediante scope WEB.
-- Rechazo HTTP 403 al utilizar un token en un canal incorrecto.
-- Acceso autorizado mediante scope MOBILE.
-- Acceso autorizado mediante scope ATM.
-- Ejecución de Discovery Server en Docker.
-- Ejecución de Config Server en Docker.
-- Ejecución de Authorization Server en Docker.
-- Ejecución de BFF Web en Docker.
-- Ejecución de BFF Mobile en Docker.
-- Ejecución de BFF ATM en Docker.
-- Backend conectado a Oracle y Kafka.
-- Ecosistema interconectado mediante contenedores.
-- Orquestación completa con Docker Compose.
-- Circuit Breaker, Retry, Bulkhead y fallback.
-- Circuit Breaker en estado OPEN ante indisponibilidad del Backend.
-- Tres consumidores Kafka distribuidos entre tres particiones.
-- Publicación y consumo real de un evento `retiro-realizado`.
-
----
-
-## 17. Tecnologías utilizadas
-
-- Java
-- Spring Boot
-- Spring Cloud
-- Spring Security
+- Java 21 en contenedores
+- Spring Boot 4.1.1
+- Spring Security 7.1.1
+- Spring Cloud 2025.1.2
+- Spring Batch
 - Spring Authorization Server
+- Spring Cloud Config
+- Spring Cloud Netflix Eureka
+- Spring Cloud LoadBalancer
 - OAuth 2.0
 - JWT
 - Resilience4j
 - Apache Kafka
-- Eureka
-- Spring Cloud Config
 - Oracle Autonomous Database
+- Maven
 - Docker
 - Docker Compose
-- Maven
+- AWS EC2
 
 ---
 
-## 18. Seguridad
+# 31. Seguridad del repositorio
 
 El repositorio no debe contener:
 
 ```text
 .env
 Oracle Wallet
-contraseñas
 client secrets
+passwords
 tokens OAuth2
 keystore.p12
+claves privadas
 ```
 
-Las credenciales se gestionan mediante variables de entorno y recursos externos al repositorio.
+La configuración sensible se suministra externamente mediante variables de entorno y archivos excluidos mediante `.gitignore`.
 
 ---
 
-## 19. Estado final
+# 32. Estado final
 
-La solución fue validada mediante:
+El proyecto actualmente dispone de:
 
-- Compilación exitosa de los siete proyectos Maven.
-- Ejecución completa mediante Docker Compose.
-- OAuth2 funcional.
-- JWT y scopes funcionales.
-- HTTPS funcional en los BFF.
-- Comunicación con Oracle.
-- Circuit Breaker funcional.
-- Retry y Bulkhead configurados.
-- Fallback funcional ante caída del Backend.
-- Kafka operativo con tres particiones y tres consumidores.
-- Publicación y consumo asíncrono de eventos.
+```text
+Spring Batch                           ✅
+3 jobs batch                           ✅
+Paralelismo                            ✅
+Retry / Skip / Restart                 ✅
+
+BFF Web                                ✅
+BFF Mobile                             ✅
+BFF ATM                                ✅
+
+OAuth2                                 ✅
+JWT                                    ✅
+Scopes por canal                       ✅
+HTTPS                                  ✅
+
+Cuentas Service                        ✅
+Pagos Service                          ✅
+Clientes Service                       ✅
+
+Config Server                          ✅
+Eureka                                 ✅
+Spring Cloud LoadBalancer              ✅
+
+Resilience4j                           ✅
+Circuit Breaker                        ✅
+Retry de lecturas                      ✅
+Bulkhead                               ✅
+Fallback                               ✅
+
+Kafka Producer                         ✅
+Auditoria Service independiente        ✅
+Consumo Kafka asíncrono                ✅
+
+Oracle Autonomous Database             ✅
+
+Docker                                 ✅
+Docker Compose                         ✅
+
+AWS EC2                                ✅
+Escalabilidad horizontal 2 × 3         ✅
+Prueba end-to-end externa              ✅
+```
+
+---
+
+# 33. Mejoras futuras
+
+Como evolución de la solución se consideran:
+
+- patrón Transactional Outbox para Oracle + Kafka;
+- TLS con certificados emitidos por una CA;
+- TLS para los servicios de infraestructura externos;
+- AWS Secrets Manager;
+- observabilidad centralizada;
+- métricas con Prometheus;
+- dashboards con Grafana;
+- trazabilidad distribuida;
+- CI/CD;
+- pruebas automáticas de integración;
+- contract testing;
+- AWS ECS, EKS o Auto Scaling para escalabilidad administrada.
+
+---
+
+# 34. Documentación de entrega
+
+La entrega final contempla:
+
+```text
+README.md
+instrucciones.md
+despliegue.md
+Informe técnico.pdf
+Código fuente / GitHub
+Video presentación.mp4
+```
+
+`README.md` entrega la visión general de la solución.
+
+`instrucciones.md` describe cómo ejecutar y probar los componentes.
+
+`despliegue.md` documenta paso a paso el despliegue en AWS.
+
+El informe técnico describe arquitectura, decisiones, integración y resultados.
+
+El video presenta el proyecto y sus principales evidencias.
