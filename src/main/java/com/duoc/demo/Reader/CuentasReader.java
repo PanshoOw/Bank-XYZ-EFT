@@ -1,68 +1,142 @@
 package com.duoc.demo.Reader;
 
-import java.io.IOException;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
-import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
+import org.springframework.batch.infrastructure.item.support.AbstractItemCountingItemStreamItemReader;
 import org.springframework.core.io.ClassPathResource;
 
 import com.duoc.demo.Model.LegacyCuentas;
 
-public class CuentasReader implements ItemReader<LegacyCuentas> {
+public class CuentasReader
+        extends AbstractItemCountingItemStreamItemReader<LegacyCuentas> {
 
-    private final List<LegacyCuentas> cuentasList;
-    private int index;
-    private final int end;
+    private static final int CANTIDAD_COLUMNAS_ESPERADAS = 5;
 
-    public CuentasReader(String resourcePath, int start, int end) throws IOException {
-        List<LegacyCuentas> cuentasList = cargarCuentas(resourcePath);
+    private final String resourcePath;
+    private final int start;
 
-        this.cuentasList = cuentasList.subList(start, Math.min(end, cuentasList.size()));
+    private BufferedReader reader;
+    private int numeroLineaFisica;
 
-        this.index = 0;
-        this.end = this.cuentasList.size();
+    public CuentasReader(
+            String resourcePath,
+            int start,
+            int end) {
+
+        if (start < 0) {
+            throw new IllegalArgumentException(
+                    "El indice inicial no puede ser negativo");
+        }
+
+        if (end < start) {
+            throw new IllegalArgumentException(
+                    "El indice final no puede ser menor que el inicial");
+        }
+
+        this.resourcePath = resourcePath;
+        this.start = start;
+
+        setName("cuentasReader");
+        setMaxItemCount(end - start);
     }
 
     @Override
-    public LegacyCuentas read() {
+    protected void doOpen() throws Exception {
 
-        if (index >= end) {
+        ClassPathResource resource =
+                new ClassPathResource(resourcePath);
+
+        reader = new BufferedReader(
+                new InputStreamReader(
+                        resource.getInputStream(),
+                        StandardCharsets.UTF_8));
+
+        String header = reader.readLine();
+
+        if (header == null) {
+            throw new IOException(
+                    "El archivo CSV esta vacio: " + resourcePath);
+        }
+
+        numeroLineaFisica = 1;
+
+        /*
+         * Posiciona el Reader al comienzo
+         * correspondiente a esta particion.
+         */
+        for (int i = 0; i < start; i++) {
+
+            String linea = reader.readLine();
+
+            if (linea == null) {
+                break;
+            }
+
+            numeroLineaFisica++;
+        }
+    }
+
+    @Override
+    protected LegacyCuentas doRead() throws Exception {
+
+        String line = reader.readLine();
+
+        if (line == null) {
             return null;
         }
 
-        return cuentasList.get(index++);
+        numeroLineaFisica++;
+
+        /*
+         * El -1 preserva, por ejemplo, una
+         * descripcion vacia al final del CSV.
+         */
+        String[] fields = line.split(",", -1);
+
+        if (fields.length != CANTIDAD_COLUMNAS_ESPERADAS) {
+
+            throw new FlatFileParseException(
+                    "Cantidad de columnas invalida. Se esperaban "
+                            + CANTIDAD_COLUMNAS_ESPERADAS
+                            + " pero se encontraron "
+                            + fields.length,
+                    line,
+                    numeroLineaFisica);
+        }
+
+        return new LegacyCuentas(
+        fields[0],
+        fields[1],
+        fields[2],
+        fields[3],
+        fields[4],
+        numeroLineaFisica);
     }
 
-    private List<LegacyCuentas> cargarCuentas(String resourcePath) throws IOException {
-        List<LegacyCuentas> cuentasList = new ArrayList<>();
-        ClassPathResource resource = new ClassPathResource(resourcePath);
+    @Override
+    protected void jumpToItem(int itemIndex) throws Exception {
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            boolean header = true;
+        for (int i = 0; i < itemIndex; i++) {
 
-            while ((line = reader.readLine()) != null) {
-                if (header) {
-                    header = false;
-                    continue;
-                }
+            String line = reader.readLine();
 
-                String[] fields = line.split(",", -1);
-                LegacyCuentas cuenta = new LegacyCuentas(
-                        fields[0],
-                        fields[1],
-                        fields[2],
-                        fields[3],
-                        fields[4]);
-                cuentasList.add(cuenta);
+            if (line == null) {
+                return;
             }
 
-            return cuentasList;
+            numeroLineaFisica++;
+        }
+    }
+
+    @Override
+    protected void doClose() throws Exception {
+
+        if (reader != null) {
+            reader.close();
         }
     }
 }

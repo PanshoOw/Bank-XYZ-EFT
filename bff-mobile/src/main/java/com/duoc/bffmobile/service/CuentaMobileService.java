@@ -4,11 +4,18 @@ import java.math.BigDecimal;
 import java.util.Arrays;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import com.duoc.bffmobile.dto.CuentaBackendResponse;
 import com.duoc.bffmobile.dto.CuentaMobileResponse;
@@ -16,86 +23,128 @@ import com.duoc.bffmobile.dto.CuentaMobileResponse;
 @Service
 public class CuentaMobileService {
 
-    private final RestClient restClient;
-    private final CircuitBreaker circuitBreaker;
+        private static final Logger log =
+                LoggerFactory.getLogger(CuentaMobileService.class);
 
-    public CuentaMobileService(
-            @Value("${bankxyz.backend.url}") String backendUrl,
-            CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
+        private final RestClient restClient;
+        private final CircuitBreaker circuitBreaker;
 
-        this.restClient = RestClient.builder()
-                .baseUrl(backendUrl)
-                .build();
+        public CuentaMobileService(
+                @Value("${bankxyz.cuentas.url}") String cuentasUrl,
+                @LoadBalanced RestClient.Builder loadBalancedRestClientBuilder,
+                CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
 
-        this.circuitBreaker = circuitBreakerFactory.create("circuitBreaker");
-    }
+                this.restClient = loadBalancedRestClientBuilder
+                        .baseUrl(cuentasUrl)
+                        .build();
 
-    public List<CuentaMobileResponse> obtenerCuentas() {
+                this.circuitBreaker =
+                        circuitBreakerFactory.create("circuitBreaker");
+        }
 
-        return circuitBreaker.run(
-                () -> {
+        public List<CuentaMobileResponse> obtenerCuentas() {
 
-                    CuentaBackendResponse[] cuentas = restClient.get()
-                            .uri("/api/cuentas")
-                            .retrieve()
-                            .body(CuentaBackendResponse[].class);
+                String token = obtenerTokenActual();
 
-                    if (cuentas == null) {
-                        return List.of();
-                    }
+                return circuitBreaker.run(
+                        () -> {
 
-                    return Arrays.stream(cuentas)
-                            .map(this::convertirAMobile)
-                            .toList();
-                },
+                        CuentaBackendResponse[] cuentas =
+                                restClient.get()
+                                        .uri("/api/cuentas")
+                                        .header(
+                                                HttpHeaders.AUTHORIZATION,
+                                                "Bearer " + token)
+                                        .retrieve()
+                                        .body(CuentaBackendResponse[].class);
 
-                throwable -> obtenerCuentasFallback(throwable));
-    }
+                        if (cuentas == null) {
+                                return List.of();
+                        }
 
-    private List<CuentaMobileResponse> obtenerCuentasFallback(Throwable e) {
+                        return Arrays.stream(cuentas)
+                                .map(this::convertirAMobile)
+                                .toList();
+                        },
+                        this::obtenerCuentasFallback);
+        }
 
-        System.out.println(
-                "CIRCUIT BREAKER ACTIVADO: " + e.getMessage());
+        private List<CuentaMobileResponse> obtenerCuentasFallback(
+                Throwable throwable) {
 
-        return List.of();
-    }
+                log.warn(
+                        "Fallback Mobile al listar cuentas",
+                        throwable);
 
-    public CuentaMobileResponse obtenerCuenta(Integer id) {
+                return List.of();
+        }
 
-        return circuitBreaker.run(
-                () -> {
-                    CuentaBackendResponse cuenta = restClient.get()
-                            .uri("/api/cuentas/{id}", id)
-                            .retrieve()
-                            .body(CuentaBackendResponse.class);
+        public CuentaMobileResponse obtenerCuenta(Integer id) {
 
-                    return convertirAMobile(cuenta);
-                },
-                throwable -> obtenerCuentaFallback(id, throwable));
-    }
+                String token = obtenerTokenActual();
 
-    private CuentaMobileResponse obtenerCuentaFallback(
-            Integer id,
-            Throwable e) {
+                return circuitBreaker.run(
+                        () -> {
 
-        System.out.println("CIRCUIT BREAKER ACTIVADO: " + e.getMessage());
+                        CuentaBackendResponse cuenta =
+                                restClient.get()
+                                        .uri("/api/cuentas/{id}", id)
+                                        .header(
+                                                HttpHeaders.AUTHORIZATION,
+                                                "Bearer " + token)
+                                        .retrieve()
+                                        .body(CuentaBackendResponse.class);
 
-        return new CuentaMobileResponse(
-                id,
-                "Servicio no disponible",
-                "N/A",
-                BigDecimal.ZERO,
-                "TEMPORALMENTE_NO_DISPONIBLE");
-    }
+                        return convertirAMobile(cuenta);
+                        },
+                        throwable ->
+                                obtenerCuentaFallback(id, throwable));
+        }
 
-    private CuentaMobileResponse convertirAMobile(
-            CuentaBackendResponse cuenta) {
+        private CuentaMobileResponse obtenerCuentaFallback(
+                Integer id,
+                Throwable throwable) {
 
-        return new CuentaMobileResponse(
-                cuenta.cuentaId(),
-                cuenta.nombre(),
-                cuenta.tipo(),
-                cuenta.saldoFinal(),
-                cuenta.estado());
-    }
+                log.warn(
+                        "Fallback Mobile al consultar la cuenta {}",
+                        id,
+                        throwable);
+
+                return new CuentaMobileResponse(
+                        id,
+                        "Servicio no disponible",
+                        "N/A",
+                        BigDecimal.ZERO,
+                        "TEMPORALMENTE_NO_DISPONIBLE");
+        }
+
+        private String obtenerTokenActual() {
+
+                Authentication authentication =
+                        SecurityContextHolder
+                                .getContext()
+                                .getAuthentication();
+
+                if (authentication
+                        instanceof JwtAuthenticationToken jwtAuthentication) {
+
+                return jwtAuthentication
+                        .getToken()
+                        .getTokenValue();
+                }
+
+                throw new IllegalStateException(
+                        "No existe un JWT autenticado para reenviar a cuentas-service");
+        }
+
+        private CuentaMobileResponse convertirAMobile(
+                CuentaBackendResponse cuenta) {
+
+                return new CuentaMobileResponse(
+                        cuenta.cuentaId(),
+                        cuenta.nombre(),
+                        cuenta.tipo(),
+                        cuenta.saldoFinal(),
+                        cuenta.estado());
+        }
 }

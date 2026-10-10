@@ -7,6 +7,11 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -21,83 +26,101 @@ public class CuentaAtmService {
 
         private static final Logger log =
                 LoggerFactory.getLogger(CuentaAtmService.class);
+
         private final RestClient restClient;
         private final CircuitBreaker circuitBreaker;
 
         public CuentaAtmService(
-                        @Value("${bankxyz.backend.url}") String backendUrl,
-                        CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
+                @Value("${bankxyz.cuentas.url}") String cuentasUrl,
+                @LoadBalanced RestClient.Builder loadBalancedRestClientBuilder,
+                CircuitBreakerFactory<?, ?> circuitBreakerFactory) {
 
-                this.restClient = RestClient.builder()
-                                .baseUrl(backendUrl)
-                                .build();
+                this.restClient = loadBalancedRestClientBuilder
+                        .baseUrl(cuentasUrl)
+                        .build();
 
-                this.circuitBreaker = circuitBreakerFactory.create("circuitBreaker");
+                this.circuitBreaker =
+                        circuitBreakerFactory.create("circuitBreaker");
         }
 
         public SaldoAtmResponse obtenerSaldo(Integer id) {
 
+                String token = obtenerTokenActual();
+
                 return circuitBreaker.run(
-                                () -> {
+                        () -> {
 
-                                        CuentaBackendResponse cuenta = restClient.get()
-                                                        .uri("/api/cuentas/{id}", id)
-                                                        .retrieve()
-                                                        .body(CuentaBackendResponse.class);
+                        CuentaBackendResponse cuenta =
+                                restClient.get()
+                                        .uri("/api/cuentas/{id}", id)
+                                        .header(
+                                                HttpHeaders.AUTHORIZATION,
+                                                "Bearer " + token)
+                                        .retrieve()
+                                        .body(CuentaBackendResponse.class);
 
-                                        return new SaldoAtmResponse(
-                                                        cuenta.cuentaId(),
-                                                        cuenta.saldoFinal(),
-                                                        cuenta.estado());
-                                },
-                                throwable -> obtenerSaldoFallback(id, throwable));
+                        return new SaldoAtmResponse(
+                                cuenta.cuentaId(),
+                                cuenta.saldoFinal(),
+                                cuenta.estado());
+                        },
+                        throwable ->
+                                obtenerSaldoFallback(id, throwable));
         }
 
-        public SaldoAtmResponse obtenerSaldoFallback(
-                        Integer id,
-                        Throwable e) {
+        private SaldoAtmResponse obtenerSaldoFallback(
+                Integer id,
+                Throwable throwable) {
 
-                log.warn("Circuit Breaker activado al consultar saldo de la cuenta {}: {}",
+                log.warn(
+                        "Fallback ATM al consultar saldo de la cuenta {}",
                         id,
-                        e.getMessage());
+                        throwable);
 
                 return new SaldoAtmResponse(
-                                id,
-                                BigDecimal.ZERO,
-                                "TEMPORALMENTE_NO_DISPONIBLE");
+                        id,
+                        BigDecimal.ZERO,
+                        "TEMPORALMENTE_NO_DISPONIBLE");
         }
 
         public RetiroAtmResponse retirar(
-                        Integer id,
-                        RetiroAtmRequest request) {
+                Integer id,
+                RetiroAtmRequest request) {
+
+                String token = obtenerTokenActual();
 
                 return circuitBreaker.run(
-                                () -> {
+                        () -> {
 
-                                        RetiroBackendResponse respuesta = restClient.post()
-                                                        .uri("/api/cuentas/{id}/retiro", id)
-                                                        .body(request)
-                                                        .retrieve()
-                                                        .body(RetiroBackendResponse.class);
+                        RetiroBackendResponse respuesta =
+                                restClient.post()
+                                        .uri("/api/cuentas/{id}/retiro", id)
+                                        .header(
+                                                HttpHeaders.AUTHORIZATION,
+                                                "Bearer " + token)
+                                        .body(request)
+                                        .retrieve()
+                                        .body(RetiroBackendResponse.class);
 
-                                        return new RetiroAtmResponse(
-                                                        respuesta.cuentaId(),
-                                                        respuesta.montoRetirado(),
-                                                        respuesta.saldoDisponible(),
-                                                        "CONFIRMADA",
-                                                        respuesta.mensaje());
-                                },
-
-                                throwable -> retirarFallback(id, throwable));
+                        return new RetiroAtmResponse(
+                                respuesta.cuentaId(),
+                                respuesta.montoRetirado(),
+                                respuesta.saldoDisponible(),
+                                "CONFIRMADA",
+                                respuesta.mensaje());
+                        },
+                        throwable ->
+                                retirarFallback(id, throwable));
         }
 
         private RetiroAtmResponse retirarFallback(
-                        Integer id,
-                        Throwable e) {
+                Integer id,
+                Throwable throwable) {
 
-                log.warn("Circuit Breaker activado al retirar de la cuenta {}: {}",
+                log.warn(
+                        "Fallback ATM al retirar de la cuenta {}",
                         id,
-                        e.getMessage());
+                        throwable);
 
                 return new RetiroAtmResponse(
                         id,
@@ -105,5 +128,24 @@ public class CuentaAtmService {
                         null,
                         "NO_VERIFICADA",
                         "No fue posible confirmar el resultado del retiro. Consulte el saldo antes de reintentar.");
+        }
+
+        private String obtenerTokenActual() {
+
+                Authentication authentication =
+                        SecurityContextHolder
+                                .getContext()
+                                .getAuthentication();
+
+                if (authentication
+                        instanceof JwtAuthenticationToken jwtAuthentication) {
+
+                return jwtAuthentication
+                        .getToken()
+                        .getTokenValue();
+                }
+
+                throw new IllegalStateException(
+                        "No existe un JWT autenticado para reenviar a cuentas-service");
         }
 }

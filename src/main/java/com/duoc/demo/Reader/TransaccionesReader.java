@@ -4,65 +4,163 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
 
-import org.springframework.batch.infrastructure.item.ItemReader;
+import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
+import org.springframework.batch.infrastructure.item.support.AbstractItemCountingItemStreamItemReader;
 import org.springframework.core.io.ClassPathResource;
 
 import com.duoc.demo.Model.LegacyTransacciones;
 
-public class TransaccionesReader implements ItemReader<LegacyTransacciones> {
+public class TransaccionesReader
+        extends AbstractItemCountingItemStreamItemReader<LegacyTransacciones> {
 
-    private final List<LegacyTransacciones> transaccionesList;
-    private int index;
-    private final int end;
+    private static final int CANTIDAD_COLUMNAS_ESPERADAS = 4;
 
-    public TransaccionesReader(String resourcePath, int start, int end) throws IOException {
-        List<LegacyTransacciones> transaccionesList = cargarTransacciones(resourcePath);
+    private final String resourcePath;
+    private final int start;
 
-        this.transaccionesList = transaccionesList.subList(start, Math.min(end, transaccionesList.size()));
+    private BufferedReader reader;
+    private int numeroLineaFisica;
 
-        this.index = 0;
-        this.end = this.transaccionesList.size();
+    public TransaccionesReader(
+            String resourcePath,
+            int start,
+            int end) {
+
+        if (start < 0) {
+            throw new IllegalArgumentException(
+                    "El indice inicial no puede ser negativo");
+        }
+
+        if (end < start) {
+            throw new IllegalArgumentException(
+                    "El indice final no puede ser menor que el inicial");
+        }
+
+        this.resourcePath = resourcePath;
+        this.start = start;
+
+        /*
+         * Nombre utilizado por Spring Batch para guardar
+         * el estado del Reader en el ExecutionContext.
+         */
+        setName("transaccionesReader");
+
+        /*
+         * Cada particion solo procesa la cantidad de
+         * registros comprendida entre start y end.
+         */
+        setMaxItemCount(end - start);
     }
 
     @Override
-    public LegacyTransacciones read() {
+    protected void doOpen() throws Exception {
 
-        if (index >= end) {
-            return null;
+        ClassPathResource resource =
+                new ClassPathResource(resourcePath);
+
+        reader = new BufferedReader(
+                new InputStreamReader(
+                        resource.getInputStream(),
+                        StandardCharsets.UTF_8));
+
+        /*
+         * La primera linea corresponde al encabezado CSV.
+         */
+        String header = reader.readLine();
+
+        if (header == null) {
+            throw new IOException(
+                    "El archivo CSV esta vacio: " + resourcePath);
         }
-        
-        return transaccionesList.get(index++);
-    }
 
-    private List<LegacyTransacciones> cargarTransacciones(String resourcePath) throws IOException {
-        List<LegacyTransacciones> transaccionesList = new ArrayList<>();
-        ClassPathResource resource = new ClassPathResource(resourcePath);
+        numeroLineaFisica = 1;
 
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            boolean header = true;
+        /*
+         * Nos posicionamos directamente al inicio
+         * correspondiente a esta particion.
+         *
+         * No cargamos el archivo completo en memoria.
+         */
+        for (int i = 0; i < start; i++) {
 
-            while ((line = reader.readLine()) != null) {
-                if (header) {
-                    header = false;
-                    continue;
-                }
+            String linea = reader.readLine();
 
-                String[] fields = line.split(",");
-                LegacyTransacciones transaccion = new LegacyTransacciones(
-                        fields[0],
-                        fields[1],
-                        fields[2],
-                        fields[3]);
-                transaccionesList.add(transaccion);
+            if (linea == null) {
+                break;
             }
 
-            return transaccionesList;
+            numeroLineaFisica++;
         }
     }
 
+    @Override
+    protected LegacyTransacciones doRead() throws Exception {
+
+        String line = reader.readLine();
+
+        if (line == null) {
+            return null;
+        }
+
+        numeroLineaFisica++;
+
+        /*
+         * El -1 conserva columnas vacias al final.
+         *
+         * Ejemplo:
+         * 1,2024-01-01,1000,
+         *
+         * Sin -1 Java eliminaria la ultima columna vacia.
+         */
+        String[] fields = line.split(",", -1);
+
+        if (fields.length != CANTIDAD_COLUMNAS_ESPERADAS) {
+
+            throw new FlatFileParseException(
+                    "Cantidad de columnas invalida. Se esperaban "
+                            + CANTIDAD_COLUMNAS_ESPERADAS
+                            + " pero se encontraron "
+                            + fields.length,
+                    line,
+                    numeroLineaFisica);
+        }
+
+        return new LegacyTransacciones(
+                fields[0],
+                fields[1],
+                fields[2],
+                fields[3]);
+    }
+
+    @Override
+    protected void jumpToItem(int itemIndex) throws Exception {
+
+        /*
+         * Durante un restart, Spring Batch recupera el contador
+         * desde el ExecutionContext.
+         *
+         * Como doOpen() ya dejo el Reader al comienzo de la
+         * particion, solamente avanzamos los registros que
+         * esa particion ya habia procesado.
+         */
+        for (int i = 0; i < itemIndex; i++) {
+
+            String line = reader.readLine();
+
+            if (line == null) {
+                return;
+            }
+
+            numeroLineaFisica++;
+        }
+    }
+
+    @Override
+    protected void doClose() throws Exception {
+
+        if (reader != null) {
+            reader.close();
+        }
+    }
 }

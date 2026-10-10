@@ -10,9 +10,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import com.duoc.demo.Decider.BankJobDecider;
+import com.duoc.demo.Listener.CriticalFailureRestartListener;
 
 @Configuration
 public class BatchJobConfig {
+
+    private static final String SIN_ERRORES = "SIN_ERRORES";
+    private static final String CON_ERRORES = "CON_ERRORES";
 
     @Bean
     public Job transaccionesJob(
@@ -24,19 +28,21 @@ public class BatchJobConfig {
             @Qualifier("stepResumenTransacciones")
             Step stepResumenTransacciones,
             @Qualifier("bankJobDecider")
-            BankJobDecider bankJobDecider) {
+            BankJobDecider bankJobDecider,
+            CriticalFailureRestartListener criticalFailureRestartListener) {
 
         return new JobBuilder(
                 "reporteTransaccionesDiariasJob",
                 jobRepository)
                 .incrementer(new RunIdIncrementer())
+                .listener(criticalFailureRestartListener)
                 .start(stepLimpiarTransacciones)
                 .next(partitionStep)
                 .next(stepResumenTransacciones)
                 .next(bankJobDecider)
-                    .on("SIN_ERRORES").end()
+                    .on(SIN_ERRORES).end()
                 .from(bankJobDecider)
-                    .on("CON_ERRORES").end()
+                    .on(CON_ERRORES).end()
                 .end()
                 .build();
     }
@@ -48,19 +54,24 @@ public class BatchJobConfig {
             Step stepLimpiarIntereses,
             @Qualifier("partitionStepIntereses")
             Step partitionStep,
+            @Qualifier("stepConsolidarIntereses")
+            Step stepConsolidarIntereses,
             @Qualifier("bankJobDecider")
-            BankJobDecider bankJobDecider) {
+            BankJobDecider bankJobDecider,
+            CriticalFailureRestartListener criticalFailureRestartListener) {
 
         return new JobBuilder(
                 "calculoInteresesMensualesJob",
                 jobRepository)
                 .incrementer(new RunIdIncrementer())
+                .listener(criticalFailureRestartListener)
                 .start(stepLimpiarIntereses)
                 .next(partitionStep)
+                .next(stepConsolidarIntereses)
                 .next(bankJobDecider)
-                    .on("SIN_ERRORES").end()
+                    .on(SIN_ERRORES).end()
                 .from(bankJobDecider)
-                    .on("CON_ERRORES").end()
+                    .on(CON_ERRORES).end()
                 .end()
                 .build();
     }
@@ -68,20 +79,28 @@ public class BatchJobConfig {
     @Bean
     public Job cuentasJob(
             JobRepository jobRepository,
-            @Qualifier("partitionStepCuentas") Step stepCuentas,
-            @Qualifier("stepResumenAnual") Step stepResumenAnual,
-            @Qualifier("stepLimpiarMovimientos") Step stepLimpiarMovimientos,
-            @Qualifier("bankJobDecider") BankJobDecider bankJobDecider) {
+            @Qualifier("partitionStepCuentas")
+            Step stepCuentas,
+            @Qualifier("stepResumenAnual")
+            Step stepResumenAnual,
+            @Qualifier("stepLimpiarMovimientos")
+            Step stepLimpiarMovimientos,
+            @Qualifier("bankJobDecider")
+            BankJobDecider bankJobDecider,
+            CriticalFailureRestartListener criticalFailureRestartListener) {
 
-        return new JobBuilder("estadosCuentaAnualesJob", jobRepository)
+        return new JobBuilder(
+                "estadosCuentaAnualesJob",
+                jobRepository)
                 .incrementer(new RunIdIncrementer())
+                .listener(criticalFailureRestartListener)
                 .start(stepLimpiarMovimientos)
                 .next(stepCuentas)
                 .next(stepResumenAnual)
                 .next(bankJobDecider)
-                    .on("SIN_ERRORES").end()
+                    .on(SIN_ERRORES).end()
                 .from(bankJobDecider)
-                    .on("CON_ERRORES").end()
+                    .on(CON_ERRORES).end()
                 .end()
                 .build();
     }
